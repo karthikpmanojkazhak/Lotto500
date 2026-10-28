@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lottery Top100">
+<meta name="theme-color" content="#0f172a">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230f172a'/%3E%3Ctext x='50' y='66' font-size='50' text-anchor='middle' fill='%23fbbf24' font-family='Arial' font-weight='bold'%3E500%3C/text%3E%3C/svg%3E">
+<title>Lottery Top 500</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--tx:#e2e8f0;--mut:#94a3b8;--ac:#fbbf24;--ok:#34d399;--bad:#f87171;--bd:#334155}
+@media (prefers-color-scheme: light){:root{--bg:#f1f5f9;--card:#fff;--tx:#0f172a;--mut:#64748b;--ac:#b45309;--ok:#047857;--bad:#b91c1c;--bd:#cbd5e1}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;padding:env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 24px)}
+h1{font-size:20px;margin:14px 0 2px}h2{font-size:16px;margin:0 0 8px}
+.sub{color:var(--mut);font-size:13px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px}
+textarea{width:100%;height:110px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px;font-size:13px}
+button,select,input[type=number]{font:inherit;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);padding:8px 12px}
+button.p{background:var(--ac);color:#000;border-color:var(--ac);font-weight:600}
+button.d{color:var(--bad)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.msg{font-size:13px;margin-top:8px;white-space:pre-wrap}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.mut{color:var(--mut)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;white-space:nowrap}
+th{color:var(--mut);font-weight:600;font-size:12px}
+td.n{font:700 17px ui-monospace,Menlo,monospace;letter-spacing:1px;color:var(--ac)}
+.note{font-size:12px;color:var(--mut)}
+</style>
+</head>
+<body>
+<h1>Lottery Top 500</h1>
+<div class="sub">Tracks last-4-digit numbers from the 4th prize (₹5000) to the 9th prize (₹100), every draw.</div>
+
+<div class="card">
+  <h2>1. Add a result</h2>
+  <div class="row">
+    <input type="file" id="pdf" accept="application/pdf" multiple>
+  </div>
+  <div class="note" style="margin-top:6px">…or open the PDF, select all, copy, and paste below (works offline):</div>
+  <textarea id="txt" placeholder="Paste result text here"></textarea>
+  <div class="row"><button class="p" id="add">Add pasted result</button></div>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="card">
+  <h2>2. Filter</h2>
+  <div class="row">
+    <label>Lottery <select id="fl"><option value="">All lotteries</option></select></label>
+  </div>
+</div>
+
+<div class="card">
+  <h2>3. Top 500 by occurrences <span class="mut" id="cnt"></span></h2>
+  <div class="row"><button id="sort" class="p">Sort 0000–9999</button><button id="copy">Copy list</button></div>
+  <div class="tbl"><table id="top"><thead><tr><th>#</th><th>Number</th><th>Times</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
+  <div class="note" style="margin-top:8px">Ranked purely by how many times each number appeared (ties: most recently seen first). Draws are random, so this does not improve your odds.</div>
+</div>
+
+<div class="card">
+  <h2>Saved draws <span class="mut" id="dn"></span></h2>
+  <div class="row"><button id="exp">Export backup</button><button class="d" id="clr">Clear all</button><label class="mut">Import <input type="file" id="imp" accept=".json"></label></div>
+  <div class="tbl"><table id="hist"><tbody></tbody></table></div>
+</div>
+
+<script>
+var KEY='lottery_draws_v1';
+var PRIZES={4:5000,5:2000,6:1000,7:500,8:200,9:100};
+var draws=load(),seq=false;
+
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return []}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(draws))}catch(e){msg('Could not save to browser storage.',1)}}
+function $(i){return document.getElementById(i)}
+function msg(t,bad,append){var m=$('msg');m.className='msg '+(bad?'bad':'ok');m.textContent=append?m.textContent+'\n'+t:t}
+
+function parse(text){
+  var t=text.replace(/\r/g,' ');
+  // strip page footers ("dd/mm/yyyy hh:mm:ss ... Page N"); page numbers are single digit
+  var name=(t.match(/([A-Z][A-Z .&-]+?)\s+LOTTERY\s+NO\.?\s*([A-Z]{1,4}-?\d+)/i)||[]);
+  var date=(t.match(/held on:?-?\s*(\d{2})\/(\d{2})\/(\d{4})/i)||[]);
+  if(!name[1]||!date[1])return {error:'Could not find lottery name / draw date in this text.'};
+  var iso=date[3]+'-'+date[2]+'-'+date[1];
+  var cut=t.search(/The prize winners are advised/i);
+  if(cut>0)t=t.slice(0,cut);
+  t=t.replace(/Modernization[\s\S]*?Department of State Lotteries/gi,' ')
+     .replace(/Page\s*\d/gi,' ')
+     .replace(/\d{1,2}\s*[\/-]\s*\d{1,2}\s*[\/-]\s*\d{4}/g,' ')
+     .replace(/\d{1,2}:\d{2}(:\d{2})?/g,' ');
+  var re=/(\d)(?:st|nd|rd|th)\s*Prize\s*-?\s*Rs\s*:?\s*(\d+)/gi,m,marks=[];
+  while((m=re.exec(t)))marks.push({p:+m[1],s:m.index,e:re.lastIndex});
+  var prizes={},total=0;
+  for(var i=0;i<marks.length;i++){
+    var p=marks[i].p;if(p<4||p>9)continue;
+    var seg=t.slice(marks[i].e,i+1<marks.length?marks[i+1].s:t.length);
+    seg=seg.replace(/\/-/g,' ');
+    var nums=seg.match(/\b\d{4}\b/g)||[];
+    prizes[p]=nums;total+=nums.length;
+  }
+  if(!total)return {error:'No 4th–9th prize numbers found.'};
+  return {lottery:name[1].trim(),drawNo:name[2].toUpperCase(),date:iso,prizes:prizes};
+}
+
+function addDraw(d,label){
+  if(d.error){msg((label?label+': ':'')+d.error,1,1);return}
+  var dup=draws.some(function(x){return x.lottery===d.lottery&&x.drawNo===d.drawNo&&x.date===d.date});
+  var counts=Object.keys(d.prizes).map(function(k){return k+'th:'+d.prizes[k].length}).join(' ');
+  if(dup){msg(d.lottery+' '+d.drawNo+' ('+d.date+') already saved — skipped.',1,1);return}
+  draws.push(d);draws.sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0});
+  save();msg('Added '+d.lottery+' '+d.drawNo+' · '+d.date+'\nCounts '+counts,0,1);render();
+}
+
+$('add').onclick=function(){$('msg').textContent='';var v=$('txt').value;if(!v.trim())return;addDraw(parse(v));$('txt').value=''};
+
+function loadPdfJs(){
+  return new Promise(function(res,rej){
+    if(window.pdfjsLib)return res();
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=function(){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';res()};
+    s.onerror=function(){rej(new Error('pdf'))};
+    document.head.appendChild(s);
+  });
+}
+$('pdf').onchange=async function(e){
+  $('msg').textContent='';
+  var files=Array.from(e.target.files);
+  try{await loadPdfJs()}catch(x){msg('PDF reader could not load (needs internet). Copy–paste the text instead.',1);return}
+  for(var f of files){
+    try{
+      var pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise,text='';
+      for(var i=1;i<=pdf.numPages;i++){
+        var pg=await pdf.getPage(i),c=await pg.getTextContent();
+        text+=c.items.map(function(it){return it.str}).join(' ')+'\n';
+      }
+      addDraw(parse(text),f.name);
+    }catch(x){msg(f.name+': could not read PDF. Try pasting the text.',1,1)}
+  }
+  e.target.value='';
+};
+
+function compute(){
+  var f=$('fl').value,map={};
+  draws.filter(function(d){return !f||d.lottery===f}).forEach(function(d){
+    Object.keys(d.prizes).forEach(function(p){
+      d.prizes[p].forEach(function(num){
+        var o=map[num]||(map[num]={num:num,c:0,last:''});
+        o.c++;
+        if(d.date>o.last)o.last=d.date;
+      });
+    });
+  });
+  return Object.values(map).sort(function(a,b){
+    return b.c-a.c||(a.last<b.last?1:a.last>b.last?-1:0)||(a.num<b.num?-1:1);
+  }).slice(0,500).map(function(o,i){o.rank=i+1;return o});
+}
+
+function render(){
+  var names=Array.from(new Set(draws.map(function(d){return d.lottery})));
+  var cur=$('fl').value;
+  $('fl').innerHTML='<option value="">All lotteries</option>'+names.map(function(x){return '<option'+(x===cur?' selected':'')+'>'+x+'</option>'}).join('');
+  var top=compute();
+  if(seq)top.sort(function(a,b){return a.num<b.num?-1:1});
+  $('cnt').textContent='('+draws.length+' draws saved)';
+  $('top').tBodies[0].innerHTML=top.map(function(o,i){
+    return '<tr><td>'+o.rank+'</td><td class="n">'+o.num+'</td><td>'+o.c+'</td><td>'+o.last+'</td></tr>';
+  }).join('')||'<tr><td colspan="4" class="mut">Add a result to begin.</td></tr>';
+  $('dn').textContent='('+draws.length+')';
+  $('hist').tBodies[0].innerHTML=draws.slice().reverse().map(function(d){
+    var i=draws.indexOf(d),c=0;Object.keys(d.prizes).forEach(function(k){c+=d.prizes[k].length});
+    return '<tr><td>'+d.date+'</td><td>'+d.lottery+' '+d.drawNo+'</td><td>'+c+' nos</td><td><button class="d" onclick="del('+i+')">Delete</button></td></tr>';
+  }).join('');
+}
+function del(i){if(confirm('Delete this draw?')){draws.splice(i,1);save();render()}}
+$('fl').onchange=render;
+
+$('sort').onclick=function(){seq=!seq;this.textContent=seq?'Sort by occurrences':'Sort 0000–9999';render()};
+$('copy').onclick=function(){
+  var l=compute();if(seq)l.sort(function(a,b){return a.num<b.num?-1:1});
+  var t=l.map(function(o){return o.rank+'. '+o.num}).join('\n');
+  if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){$('copy').textContent='Copied ✓'});
+};
+$('clr').onclick=function(){if(confirm('Delete ALL saved draws?')){draws=[];save();render();$('msg').textContent=''}};
+$('exp').onclick=function(){
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(draws)],{type:'application/json'}));
+  a.download='lottery-backup.json';a.click();
+};
+$('imp').onchange=function(e){
+  var r=new FileReader();
+  r.onload=function(){try{
+    var arr=JSON.parse(r.result),added=0;
+    arr.forEach(function(d){if(!draws.some(function(x){return x.lottery===d.lottery&&x.drawNo===d.drawNo&&x.date===d.date})){draws.push(d);added++}});
+    draws.sort(function(a,b){return a.date<b.date?-1:1});save();render();msg('Imported '+added+' draws.');
+  }catch(x){msg('Invalid backup file.',1)}};
+  r.readAsText(e.target.files[0]);
+};
+render();
+</script>
+</body>
+</html>
